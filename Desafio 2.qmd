@@ -1,0 +1,115 @@
+---
+title: "Lab 02 Desafio"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+Carregamento de Pacotes
+
+```{r}
+library(reticulate)
+py_config()
+```
+
+1)  As estatísticas suficientes para realizar essa determinação tratam-se do total de voos observados e o total de voos com atrasos.
+
+2)  Atividade Principal
+
+```{python}
+import pandas as pd
+import seaborn as sns
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import calendar
+
+def getStats(df):
+    df = df[df["AIRLINE"].isin(["AA", "DL", "UA", "US"])]
+    df = df.dropna(subset=["ARRIVAL_DELAY", "YEAR", "MONTH", "DAY", "AIRLINE"])
+    df["atrasado"] = (df["ARRIVAL_DELAY"] > 10).astype(int)
+    stats = (
+        df.groupby(["AIRLINE", "YEAR", "MONTH", "DAY"])
+          .agg(n_voos=("AIRLINE", "size"),
+               n_atrasados=("atrasado", "sum"))
+          .reset_index()
+    )
+    return stats
+
+def process_in_chunks(filepath, chunksize=100000):
+    all_chunks = []
+    for i, chunk in enumerate(pd.read_csv(
+        filepath,
+        chunksize=chunksize,
+        usecols=["YEAR", "MONTH", "DAY", "AIRLINE", "ARRIVAL_DELAY"],
+        delimiter=',',    # garantir delimitador correto
+        encoding='utf-8'  # definir encoding padrão
+    )):
+        print(f"Processando chunk {i+1} com {len(chunk)} linhas")
+        stats = getStats(chunk)
+        all_chunks.append(stats)
+    all_stats = pd.concat(all_chunks, ignore_index=True)  # resetar índice aqui
+    combined = (
+        all_stats.groupby(["AIRLINE", "YEAR", "MONTH", "DAY"], as_index=False)
+                 .agg(n_voos=("n_voos", "sum"),
+                      n_atrasados=("n_atrasados", "sum"))
+    )
+    return combined
+
+def computeStats(df):
+    df = df.copy()
+    df["Perc"] = df["n_atrasados"] / df["n_voos"]
+    df["Data"] = pd.to_datetime(
+        df[["YEAR", "MONTH", "DAY"]].astype(str).agg("-".join, axis=1)
+    )
+    df = df[["AIRLINE", "Data", "Perc"]].rename(columns={"AIRLINE": "Cia"})
+    return df
+
+def baseCalendario(stats, cia):
+    df = stats[stats["Cia"] == cia].copy()
+    df["year"] = df["Data"].dt.year
+    df["month"] = df["Data"].dt.month
+    df["week"] = df["Data"].dt.isocalendar().week
+    df["wday"] = df["Data"].dt.weekday  # segunda = 0, domingo = 6
+    return df
+
+def plotCalendario(stats, cia):
+    df = baseCalendario(stats, cia)
+
+    pivot = df.pivot_table(
+        index="wday",
+        columns="week",
+        values="Perc",
+        aggfunc="mean"
+    ).reindex(index=range(7))
+
+    plt.figure(figsize=(15, 6))
+    sns.heatmap(
+        pivot,
+        cmap=sns.color_palette(["#4575b4", "#d73027"], as_cmap=True),
+        cbar=True,
+        linewidths=0.2,
+        linecolor='gray'
+    )
+    plt.title(f"Percentual de Atrasos - {cia}", fontsize=16)
+    plt.yticks(ticks=[i + 0.5 for i in range(7)], labels=[calendar.day_name[i] for i in range(7)], rotation=0)
+    plt.xlabel("Semana do Ano")
+    plt.ylabel("Dia da Semana")
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    arquivo = "Dados/flights.csv"
+    print("Processando os dados em chunks...")
+    resultado_final = process_in_chunks(arquivo, chunksize=100000)
+    print("Verificando as primeiras linhas de resultado_final:")
+    print(resultado_final.head(10))
+    print("Calculando os percentuais de atrasos...")
+    stats = computeStats(resultado_final)
+    print("Verificando as primeiras linhas de stats:")
+    print(stats.head(10))
+    print("Gerando mapas de calor...")
+    for cia in ["AA", "DL", "UA", "US"]:
+        print(f"Gerando gráfico para {cia}...")
+        plotCalendario(stats, cia)
+```
