@@ -1,0 +1,191 @@
+---
+title: "Analisa Aeronave – Dashboard Elegante (Tudo em um arquivo)"
+author: "Joao Eduardo P Garcia (RA277172) • Felipe Popic (RA277151) • Luiz Eduardo C. M. Rodrigues (RA284715)"
+format:
+  html:
+    theme: minty
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+    page-layout: full
+    smooth-scroll: true
+    link-external-newwindow: true
+execute:
+  echo: true
+  warning: false
+  error: false
+params:
+  tail_number: "N431WN"
+---
+
+# Cabeçalho
+
+> Aeronave analisada: **`r params$tail_number`**\
+> Dashboard com métricas, tabela dinâmica e mapa das rotas em um único arquivo.
+
+```{=html}
+<style>
+:root{ --card-bg:#ffffff; --card-br:#e5e7eb; --muted:#6b7280; }
+.hero{background:linear-gradient(120deg,#38bdf8,#22c55e);color:#fff;border-radius:.8rem;padding:1.25rem 1.5rem;margin-bottom:1rem;}
+.hero h1{font-size:1.35rem;margin:0 0 .25rem 0}
+.metric-card{background:var(--card-bg);border:1px solid var(--card-br);border-radius:.8rem;padding:1rem;height:100%;box-shadow:0 6px 18px rgba(0,0,0,.05)}
+.metric-title{color:var(--muted);font-size:.85rem;margin-bottom:.25rem}
+.metric-value{font-size:1.6rem;font-weight:700;color:#0f172a}
+.leaflet-container{border-radius:.8rem;border:1px solid var(--card-br)}
+.table>thead th{white-space:nowrap}
+</style>
+```
+
+# Setup
+
+```{r setup}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(leaflet)
+  library(lubridate)
+  library(readr)
+  library(DT)
+  library(knitr)
+  library(glue)
+})
+fmt <- function(x, d=1) formatC(x, format='f', big.mark = ',', digits = d)
+```
+
+# Carregar dados {.panel-tabset}
+
+## Processamento
+
+```{r dados}
+# Caminhos (CSV simples conforme seu exemplo)
+flights_file  <- file.path("dados", "flights.csv")
+airports_file <- file.path("dados", "airports.csv")
+
+# Leitura
+airports <- read_csv(airports_file, show_col_types = FALSE) %>%
+  select(origin = IATA_CODE, lat = LATITUDE, lon = LONGITUDE)
+
+flights_data <- read_csv(flights_file, show_col_types = FALSE) %>%
+  filter(TAIL_NUMBER == params$tail_number) %>%
+  mutate(DEPARTURE_TIME = suppressWarnings(as.numeric(DEPARTURE_TIME))) %>%
+  drop_na(ORIGIN_AIRPORT, DESTINATION_AIRPORT, DEPARTURE_TIME, AIR_TIME, DISTANCE) %>%
+  arrange(YEAR, MONTH, DAY, DEPARTURE_TIME) %>%
+  mutate(
+    flight_time = AIR_TIME / 60,
+    avg_speed   = DISTANCE / pmax(flight_time, 1e-9)
+  ) %>%
+  left_join(airports, by = c("ORIGIN_AIRPORT" = "origin")) %>%
+  rename(orig_lat = lat, orig_lon = lon) %>%
+  left_join(airports, by = c("DESTINATION_AIRPORT" = "origin")) %>%
+  rename(dest_lat = lat, dest_lon = lon) %>%
+  mutate(
+    dep_datetime = make_datetime(
+      YEAR, MONTH, DAY,
+      floor(DEPARTURE_TIME / 100),
+      DEPARTURE_TIME %% 100
+    ),
+    route     = paste(ORIGIN_AIRPORT, DESTINATION_AIRPORT, sep = "-"),
+    flight_id = row_number()
+  )
+
+if (nrow(flights_data) == 0) knitr::knit_exit()
+
+resumo <- list(
+  total_voos = nrow(flights_data),
+  companhias = sort(unique(flights_data$AIRLINE)),
+  aeroportos_visitados = sort(unique(c(flights_data$ORIGIN_AIRPORT, flights_data$DESTINATION_AIRPORT))),
+  distancia_total = sum(flights_data$DISTANCE),
+  tempo_total_voo = sum(flights_data$AIR_TIME, na.rm = TRUE)
+)
+
+TabelaFinal <- flights_data %>% select(
+  AIRLINE, FLIGHT_NUMBER,
+  ORIGIN_AIRPORT, DESTINATION_AIRPORT,
+  dep_datetime, AIR_TIME, DISTANCE, avg_speed,
+  DEPARTURE_DELAY, ARRIVAL_DELAY
+)
+
+Rotas <- flights_data %>% transmute(
+  orig_lon, orig_lat, dest_lon, dest_lat,
+  popup = glue(
+    "Voo: {ORIGIN_AIRPORT} → {DESTINATION_AIRPORT}<br>",
+    "Companhia: {AIRLINE}<br>Nº Voo: {FLIGHT_NUMBER}<br>",
+    "Data: {format(dep_datetime, '%Y-%m-%d %H:%M')}<br>",
+    "Vel. média: {round(avg_speed,1)} mph<br>",
+    "Distância: {DISTANCE} mi<br>Tempo: {AIR_TIME} min"
+  )
+)
+```
+
+## Visão geral
+
+```{r overview, echo=FALSE}
+htmltools::HTML('<div class="hero"><h1>Analisa Aeronave — Dashboard</h1><div>Resumo, tabela dinâmica e mapa interativo das rotas</div></div>')
+```
+
+# Relatório {.panel-tabset}
+
+## Resumo
+
+```{r}
+wrap <- tibble(
+  Título = c("Total de voos","Aeroportos","Companhias","Distância (mi)","Tempo total (min)"),
+  Valor  = c(resumo$total_voos,
+             length(resumo$aeroportos_visitados),
+             length(resumo$companhias),
+             resumo$distancia_total,
+             resumo$tempo_total_voo)
+)
+htmltools::tags$div(
+  class = 'row g-3',
+  lapply(seq_len(nrow(wrap)), function(i){
+    htmltools::tags$div(class='col-12 col-sm-6 col-lg-3',
+      htmltools::HTML(glue('<div class="metric-card"><div class="metric-title">{wrap$Título[i]}</div><div class="metric-value">{fmt(wrap$Valor[i], ifelse(i>=4,0,0))}</div></div>'))
+    )
+  })
+)
+```
+
+## Tabela
+
+```{r}
+DT::datatable(
+  TabelaFinal,
+  options = list(pageLength = 10, autoWidth = TRUE, order = list(list(5,'asc'))),
+  rownames = FALSE,
+  filter = 'top',
+  caption = htmltools::tags$span('Voos para a aeronave ', htmltools::tags$strong(params$tail_number))
+)
+```
+
+## Mapa
+
+```{r}
+map <- leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(
+    data = dplyr::distinct(airports, origin, .keep_all = TRUE),
+    lng = ~lon, lat = ~lat,
+    radius = 3, popup = ~origin, color = "dodgerblue",
+    group = "Aeroportos"
+  )
+cols <- colorRampPalette(c('#4c6fff','#22c55e','#f97316','#a855f7','#06b6d4','#ef4444','#10b981','#f59e0b'))(nrow(Rotas))
+for (i in seq_len(nrow(Rotas))) {
+  map <- map %>% addPolylines(
+    lng = c(Rotas$orig_lon[i], Rotas$dest_lon[i]),
+    lat = c(Rotas$orig_lat[i], Rotas$dest_lat[i]),
+    weight = 3, color = cols[i], popup = Rotas$popup[i], group = 'Rotas'
+  )
+}
+bbox <- rbind(cbind(Rotas$orig_lat, Rotas$orig_lon), cbind(Rotas$dest_lat, Rotas$dest_lon))
+map <- map %>% addLayersControl(overlayGroups = c('Aeroportos','Rotas'), options = layersControlOptions(collapsed = FALSE))
+if (nrow(bbox)) map <- map %>% fitBounds(lng1=min(bbox[,2],na.rm=TRUE), lat1=min(bbox[,1],na.rm=TRUE), lng2=max(bbox[,2],na.rm=TRUE), lat2=max(bbox[,1],na.rm=TRUE))
+map
+```
+
+## Código‑fonte
+
+Para alterar a aeronave, edite `params: tail_number` no YAML e renderize novamente este arquivo.\
+Use o botão “Show code” do Quarto para expandir e copiar os blocos desta página.
