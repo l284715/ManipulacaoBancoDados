@@ -1,0 +1,45 @@
+---
+title: "Desafio1"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+Pacote Base do R)
+
+```{r}
+system.time({
+  df_base <- read.csv("Dados/flights.csv")
+})
+```
+
+Pacote readr)
+
+```{r}
+library(readr)
+
+system.time({
+  df_readr <- read_csv("Dados/flights.csv")
+})
+```
+
+Do Pandas em Python)
+
+```{r}
+library(reticulate)
+py_config()
+```
+
+```{python}
+
+import pandas as pd
+import time
+
+start = time.time()
+df_pandas = pd.read_csv("Dados/flights.csv")
+end = time.time()
+
+print("Tempo pandas:", end - start, "segundos")
+```
+
+No geral, o método do pandas se mostrou o mais veloz para a leitura do arquivo.
