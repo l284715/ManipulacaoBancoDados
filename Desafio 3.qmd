@@ -1,0 +1,51 @@
+---
+title: "Desafio 3"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+```{r, include = FALSE}
+library(arrow) 
+library(jsonlite)
+```
+
+1\) Parquet
+
+Os arquivos parquet apresentam formato binário e compacto, em colunas, de modo a facilitar e agilizar a leitura de seus dados
+
+O arquivo parquet escolhido foi um arquivo-exemplo encontrado na web. Nele, temos registrados alguns funcionários notáveis de certas empresas.
+
+```{r}
+parquet <- read_parquet("Dados/sample.parquet") 
+como_dataframe <- as.data.frame(parquet)  
+```
+
+Pode se notar que, mesmo sendo feita a conversão, os arquivos continuam idênticos. Isso ocorre, porém, porque o pacote arrow transforma o arquivo parquet em um objeto do tipo arrow_table, o qual tem propriedades muito parecidas de um dataframe. Sabendo disso, fazemos essa conversão final para garantir que seja um dataframe.
+
+2\) JSON
+
+Os arquivos JSON se diferem dos parquet por se organizarem em linhas, e não colunas. Neste caso, este tipo de arquivo utiliza um sistema de chave-valor, onde as variáveis das colunas se tornam as chaves, e os valores são atribuídos conforme estariam dispostos em cada linha de um dataframe.
+
+Aqui, optei por converter o dataset iris, tradicional no R, para JSON ao invés de pegar um arquivo da web.
+
+```{r}
+data("iris")
+json_iris <- toJSON(iris, pretty = TRUE)
+write(json_iris, file = "Dados/iris.json")
+
+```
+
+```{r, include = FALSE}
+print(json_iris)
+```
+
+```{r}
+como_dataframe_2 <- fromJSON("Dados/iris.json", flatten = TRUE)
+```
+
+```{r, include = FALSE}
+class(como_dataframe_2)
+```
+
+Utilizando o pacote jsonlite, podemos fazer a conversão de dataframe para JSON, e vice-versa. Além disso, o comando fromJSON já converte para dataframe diretamente. Nota-se que, neste arquivo JSON, as linhas (ou blocos, separados por {}) representam o conjunto de características de cada planta registrada no dataset iris.

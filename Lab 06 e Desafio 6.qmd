@@ -1,0 +1,317 @@
+---
+title: "Lab 06 + Desafio 6"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+(Carregamento de Pacotes)
+
+```{r}
+library(RSQLite)
+library(dplyr)
+library(dbplyr)
+```
+
+1 à 4)
+
+```{r}
+path <- "Dados"
+fname <- file.path(path, "disco.db")
+
+conn <- RSQLite::dbConnect(RSQLite::SQLite(), fname)
+
+tables_df <- RSQLite::dbGetQuery(conn,
+  "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
+)
+print(tables_df$name)
+
+cols_info <- RSQLite::dbGetQuery(conn, "PRAGMA table_info('customers');")
+colunas_customers <- cols_info %>% pull(name)
+print(colunas_customers)
+```
+
+5 à 10)
+
+```{r}
+tables_df <- RSQLite::dbGetQuery(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+tables <- tables_df$name
+cat("Tabelas detectadas:\n"); print(tables)
+
+get_cols <- function(tbl) {
+  qry <- sprintf("PRAGMA table_info('%s');", tbl)
+  RSQLite::dbGetQuery(conn, qry)
+}
+
+test_intersection_sample <- function(Ltbl, Lcol, Rtbl, Rcol, sample_n = 500) {
+
+  q <- sprintf(
+    "SELECT COUNT(1) AS cnt FROM
+     (SELECT DISTINCT \"%s\" AS val FROM \"%s\" WHERE \"%s\" IS NOT NULL LIMIT %d) a
+     JOIN
+     (SELECT DISTINCT \"%s\" AS val FROM \"%s\" WHERE \"%s\" IS NOT NULL LIMIT %d) b
+     ON a.val = b.val;",
+    Lcol, Ltbl, Lcol, sample_n,
+    Rcol, Rtbl, Rcol, sample_n
+  )
+  res <- try(RSQLite::dbGetQuery(conn, q), silent = TRUE)
+  if (inherits(res, "try-error")) return(0L)
+  as.integer(res$cnt[1])
+}
+
+find_best_join_sample <- function(Ltbl, Rtbl, sample_n = 500, max_pairs = 200) {
+  Lcols_df <- get_cols(Ltbl)
+  Rcols_df <- get_cols(Rtbl)
+  if (nrow(Lcols_df) == 0 || nrow(Rcols_df) == 0) return(NULL)
+  Lcols <- Lcols_df$name; Rcols <- Rcols_df$name
+  
+  score_col <- function(x) {
+    s <- 0
+    lx <- tolower(x)
+    if (grepl("id$", lx) || grepl("^id", lx) || grepl("id", lx)) s <- s + 10
+    if (nchar(lx) <= 6) s <- s + 1
+    s
+  }
+  
+  pairs <- expand.grid(L = Lcols, R = Rcols, stringsAsFactors = FALSE)
+  pairs$score <- mapply(function(a,b) score_col(a) + score_col(b), pairs$L, pairs$R)
+
+  pairs <- pairs[order(-pairs$score), , drop = FALSE]
+  if (nrow(pairs) > max_pairs) pairs <- pairs[1:max_pairs, , drop = FALSE]
+  
+  best <- list(cnt = 0L, lcol = NA_character_, rcol = NA_character_)
+  for (i in seq_len(nrow(pairs))) {
+    lcol <- pairs$L[i]; rcol <- pairs$R[i]
+    cnt <- test_intersection_sample(Ltbl, lcol, Rtbl, rcol, sample_n)
+    if (cnt > best$cnt) best <- list(cnt = cnt, lcol = lcol, rcol = rcol)
+    # early stop se já encontrou boa correspondência
+    if (best$cnt >= 1 && best$cnt == sample_n) break
+  }
+  if (best$cnt == 0L) return(NULL)
+  best$Ltbl <- Ltbl; best$Rtbl <- Rtbl; best
+}
+
+choose_table <- function(patterns) {
+  for(p in patterns) {
+    idx <- grep(p, tolower(tables), perl = TRUE)
+    if(length(idx) > 0) return(tables[idx[1]])
+  }
+  NA_character_
+}
+
+cust_tbl    <- choose_table(c("customer"))
+inv_tbl     <- choose_table(c("^invoice$","invoice"))
+invline_tbl <- choose_table(c("invoice.*line","invoice.*item","invoiceline","invoice_items"))
+track_tbl   <- choose_table(c("^track","track"))
+album_tbl   <- choose_table(c("album"))
+artist_tbl  <- choose_table(c("artist"))
+
+cat("Tabelas escolhidas (tentativa):\n")
+print(list(customers = cust_tbl, invoices = inv_tbl, invoice_lines = invline_tbl,
+           tracks = track_tbl, albums = album_tbl, artists = artist_tbl))
+
+for(tbl in unique(na.omit(c(cust_tbl, inv_tbl, invline_tbl, track_tbl, album_tbl, artist_tbl)))) {
+  cat("\n--", tbl, "--\n")
+  print(get_cols(tbl))
+}
+
+map_cust_inv  <- if(!is.na(cust_tbl) && !is.na(inv_tbl)) find_best_join_sample(cust_tbl, inv_tbl) else NULL
+map_inv_il    <- if(!is.na(inv_tbl) && !is.na(invline_tbl)) find_best_join_sample(inv_tbl, invline_tbl) else NULL
+map_il_track  <- if(!is.na(invline_tbl) && !is.na(track_tbl)) find_best_join_sample(invline_tbl, track_tbl) else NULL
+map_track_album <- if(!is.na(track_tbl) && !is.na(album_tbl)) find_best_join_sample(track_tbl, album_tbl) else NULL
+map_album_artist<- if(!is.na(album_tbl) && !is.na(artist_tbl)) find_best_join_sample(album_tbl, artist_tbl) else NULL
+
+cat("\nMapeamentos (amostra):\n")
+print(list(cust_inv = map_cust_inv, inv_invline = map_inv_il, invline_track = map_il_track,
+           track_album = map_track_album, album_artist = map_album_artist))
+
+pick_name_col <- function(tbl, candidates=c("name","title")) {
+  cols <- get_cols(tbl)$name
+  for(p in candidates) {
+    hit <- cols[grep(p, tolower(cols))]
+    if(length(hit) > 0) return(hit[1])
+  }
+  cols[1]
+}
+track_name_col  <- if(!is.na(track_tbl)) pick_name_col(track_tbl) else NA
+album_title_col <- if(!is.na(album_tbl)) pick_name_col(album_tbl, c("title","name")) else NA
+artist_name_col <- if(!is.na(artist_tbl)) pick_name_col(artist_tbl) else NA
+cust_country_col <- if(!is.na(cust_tbl)) {
+  cols <- get_cols(cust_tbl)$name
+  hit <- cols[grep("country", tolower(cols))]
+  if(length(hit) > 0) hit[1] else NA
+} else NA
+
+cat("\nColunas escolhidas (heurística):\n")
+print(list(track_name = track_name_col, album_title = album_title_col,
+           artist_name = artist_name_col, cust_country = cust_country_col))
+
+if (is.null(map_cust_inv) || is.null(map_inv_il) || is.null(map_il_track) ||
+    is.null(map_track_album) || is.null(map_album_artist) ||
+    is.na(track_name_col) || is.na(album_title_col) || is.na(artist_name_col) || is.na(cust_country_col)) {
+  cat("\nMapeamento incompleto — cole aqui a saída acima (tabelas e mapeamentos) que eu adapto manualmente.\n")
+  RSQLite::dbDisconnect(conn)
+  stop("Mapeamento incompleto — ver diagnóstico impresso.")
+}
+
+sql <- sprintf(
+'SELECT DISTINCT t."%s" AS track_name, ar."%s" AS artist_name, al."%s" AS album_title
+FROM "%s" c
+JOIN "%s" i ON c."%s" = i."%s"
+JOIN "%s" il ON i."%s" = il."%s"
+JOIN "%s" t ON il."%s" = t."%s"
+JOIN "%s" al ON t."%s" = al."%s"
+JOIN "%s" ar ON al."%s" = ar."%s"
+WHERE c."%s" = \'Brazil\'
+ORDER BY track_name;',
+track_name_col, artist_name_col, album_title_col,
+cust_tbl,
+inv_tbl, map_cust_inv$lcol, map_cust_inv$rcol,
+invline_tbl, map_inv_il$lcol, map_inv_il$rcol,
+track_tbl, map_il_track$lcol, map_il_track$rcol,
+album_tbl, map_track_album$lcol, map_track_album$rcol,
+artist_tbl, map_album_artist$lcol, map_album_artist$rcol,
+cust_country_col
+)
+
+cat("\nExecutando consulta final (rápida)...\n")
+res_tracks <- RSQLite::dbGetQuery(conn, sql)
+print(res_tracks)
+```
+
+Desafio e 11)
+
+```{r}
+if (!exists("conn") || is.null(conn)) {
+  conn <- RSQLite::dbConnect(RSQLite::SQLite(), file.path(".", "disco.db"))
+  created_conn <- TRUE
+} else created_conn <- FALSE
+
+get_cols <- function(tbl) RSQLite::dbGetQuery(conn, sprintf("PRAGMA table_info('%s');", tbl))
+choose_table <- function(patterns) {
+  tables <- RSQLite::dbGetQuery(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")$name
+  for (p in patterns) { idx <- grep(p, tolower(tables)); if (length(idx)>0) return(tables[idx[1]]) }
+  NA_character_
+}
+test_intersection_sample <- function(Ltbl, Lcol, Rtbl, Rcol, sample_n = 500) {
+  q <- sprintf(
+    "SELECT COUNT(1) AS cnt FROM
+     (SELECT DISTINCT \"%s\" AS val FROM \"%s\" WHERE \"%s\" IS NOT NULL LIMIT %d) a
+     JOIN
+     (SELECT DISTINCT \"%s\" AS val FROM \"%s\" WHERE \"%s\" IS NOT NULL LIMIT %d) b
+     ON a.val = b.val;",
+    Lcol, Ltbl, Lcol, sample_n, Rcol, Rtbl, Rcol, sample_n
+  )
+  res <- try(RSQLite::dbGetQuery(conn, q), silent=TRUE)
+  if (inherits(res, "try-error")) return(0L)
+  as.integer(res$cnt[1])
+}
+find_best_join_sample <- function(Ltbl, Rtbl, sample_n = 500, max_pairs = 200) {
+  Lcols <- get_cols(Ltbl)$name; Rcols <- get_cols(Rtbl)$name
+  if (length(Lcols)==0 || length(Rcols)==0) return(NULL)
+  score_col <- function(x) { s <- 0; lx <- tolower(x); if (grepl("id", lx)) s <- s+10; if (nchar(lx)<=6) s <- s+1; s }
+  pairs <- expand.grid(L=Lcols, R=Rcols, stringsAsFactors=FALSE)
+  pairs$score <- mapply(function(a,b) score_col(a)+score_col(b), pairs$L, pairs$R)
+  pairs <- pairs[order(-pairs$score), , drop=FALSE]
+  if (nrow(pairs)>max_pairs) pairs <- pairs[1:max_pairs, , drop=FALSE]
+  best <- list(cnt=0L, lcol=NA, rcol=NA)
+  for (i in seq_len(nrow(pairs))) {
+    cnt <- test_intersection_sample(Ltbl, pairs$L[i], Rtbl, pairs$R[i], sample_n)
+    if (cnt > best$cnt) best <- list(cnt=cnt, lcol=pairs$L[i], rcol=pairs$R[i])
+    if (best$cnt >= 1 && best$cnt == sample_n) break
+  }
+  if (best$cnt==0L) return(NULL)
+  best$Ltbl <- Ltbl; best$Rtbl <- Rtbl; best
+}
+pick_name_col <- function(tbl, candidates = c("name","title")) {
+  cols <- get_cols(tbl)$name
+  for (p in candidates) { hit <- cols[grep(p, tolower(cols))]; if (length(hit)>0) return(hit[1]) }
+  cols[1]
+}
+
+if (!exists("customers_tbl"))   customers_tbl   <- choose_table(c("customer"))
+if (!exists("invoices_tbl"))    invoices_tbl    <- choose_table(c("^invoice$","invoice"))
+if (!exists("invoice_line_tbl"))invoice_line_tbl<- choose_table(c("invoice.*line","invoice.*item","invoiceline","invoice_items"))
+if (!exists("track_tbl"))       track_tbl       <- choose_table(c("^track","track"))
+if (!exists("album_tbl"))       album_tbl       <- choose_table(c("album"))
+if (!exists("artist_tbl"))      artist_tbl      <- choose_table(c("artist"))
+
+# detectar joins/colunas se não existirem
+if (!exists("map_cust_inv"))   map_cust_inv   <- if(!is.na(customers_tbl) && !is.na(invoices_tbl)) find_best_join_sample(customers_tbl, invoices_tbl) else NULL
+if (!exists("map_inv_il"))     map_inv_il     <- if(!is.na(invoices_tbl) && !is.na(invoice_line_tbl)) find_best_join_sample(invoices_tbl, invoice_line_tbl) else NULL
+if (!exists("map_il_track"))   map_il_track   <- if(!is.na(invoice_line_tbl) && !is.na(track_tbl)) find_best_join_sample(invoice_line_tbl, track_tbl) else NULL
+if (!exists("map_track_album"))map_track_album<- if(!is.na(track_tbl) && !is.na(album_tbl)) find_best_join_sample(track_tbl, album_tbl) else NULL
+if (!exists("map_album_artist"))map_album_artist<- if(!is.na(album_tbl) && !is.na(artist_tbl)) find_best_join_sample(album_tbl, artist_tbl) else NULL
+
+if (!exists("cust_country_col")) cust_country_col <- if(!is.na(customers_tbl)) { cols <- get_cols(customers_tbl)$name; hit <- cols[grep("country", tolower(cols))]; if(length(hit)>0) hit[1] else NA } else NA
+if (!exists("album_title_col"))  album_title_col  <- if(!is.na(album_tbl)) pick_name_col(album_tbl, c("title","name")) else NA
+if (!exists("artist_name_col"))  artist_name_col  <- if(!is.na(artist_tbl)) pick_name_col(artist_tbl) else NA
+
+needed_ok <- !(is.null(map_cust_inv) || is.null(map_inv_il) || is.null(map_il_track) ||
+               is.null(map_track_album) || is.null(map_album_artist) ||
+               is.na(album_title_col) || is.na(artist_name_col) || is.na(cust_country_col))
+if (!needed_ok) {
+  RSQLite::dbDisconnect(conn)
+  stop("Mapeamento incompleto -- execute o bloco de detecção de tabelas/colunas antes.")
+}
+
+# álbum mais tocado por país
+sql_album <- sprintf(
+"WITH album_counts AS (
+  SELECT c.\"%s\" AS country, al.\"%s\" AS album_title, COUNT(*) AS plays
+  FROM \"%s\" c
+  JOIN \"%s\" i ON c.\"%s\" = i.\"%s\"
+  JOIN \"%s\" il ON i.\"%s\" = il.\"%s\"
+  JOIN \"%s\" t ON il.\"%s\" = t.\"%s\"
+  JOIN \"%s\" al ON t.\"%s\" = al.\"%s\"
+  GROUP BY country, al.\"%s\"
+)
+SELECT country, album_title, plays FROM (
+  SELECT country, album_title, plays,
+         ROW_NUMBER() OVER (PARTITION BY country ORDER BY plays DESC, album_title) AS rn
+  FROM album_counts
+) WHERE rn = 1
+ORDER BY country;",
+cust_country_col, album_title_col,
+customers_tbl,
+invoices_tbl, map_cust_inv$lcol, map_cust_inv$rcol,
+invoice_line_tbl, map_inv_il$lcol, map_inv_il$rcol,
+track_tbl, map_il_track$lcol, map_il_track$rcol,
+album_tbl, map_track_album$lcol, map_track_album$rcol,
+album_title_col
+)
+album_top_by_country <- RSQLite::dbGetQuery(conn, sql_album)
+print(album_top_by_country)
+
+# artista mais tocado por país
+sql_artist <- sprintf(
+"WITH artist_counts AS (
+  SELECT c.\"%s\" AS country, ar.\"%s\" AS artist_name, COUNT(*) AS plays
+  FROM \"%s\" c
+  JOIN \"%s\" i ON c.\"%s\" = i.\"%s\"
+  JOIN \"%s\" il ON i.\"%s\" = il.\"%s\"
+  JOIN \"%s\" t ON il.\"%s\" = t.\"%s\"
+  JOIN \"%s\" al ON t.\"%s\" = al.\"%s\"
+  JOIN \"%s\" ar ON al.\"%s\" = ar.\"%s\"
+  GROUP BY country, ar.\"%s\"
+)
+SELECT country, artist_name, plays FROM (
+  SELECT country, artist_name, plays,
+         ROW_NUMBER() OVER (PARTITION BY country ORDER BY plays DESC, artist_name) AS rn
+  FROM artist_counts
+) WHERE rn = 1
+ORDER BY country;",
+cust_country_col, artist_name_col,
+customers_tbl,
+invoices_tbl, map_cust_inv$lcol, map_cust_inv$rcol,
+invoice_line_tbl, map_inv_il$lcol, map_inv_il$rcol,
+track_tbl, map_il_track$lcol, map_il_track$rcol,
+album_tbl, map_track_album$lcol, map_track_album$rcol,
+artist_tbl, map_album_artist$lcol, map_album_artist$rcol,
+artist_name_col
+)
+artist_top_by_country <- RSQLite::dbGetQuery(conn, sql_artist)
+print(artist_top_by_country)
+
+RSQLite::dbDisconnect(conn)
+```
