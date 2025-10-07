@@ -1,0 +1,148 @@
+---
+title: "Lab 011 e Desafio 11"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+Carregamento de Pacotes)
+
+```{python}
+import polars as pl
+import plotly.express as px
+import pandas as pd
+from datetime import datetime
+```
+
+1\)
+
+```{python}
+col_names = [
+    "age",
+    "workclass",
+    "fnlwgt",
+    "education",
+    "education_num",
+    "marital_status",
+    "occupation",
+    "relationship",
+    "race",
+    "sex",
+    "capital_gain",
+    "capital_loss",
+    "hours_per_week",
+    "native_country",
+    "income"
+]
+
+col_dtypes = [
+    pl.Float64,      # age
+    pl.Categorical,  # workclass
+    pl.Float64,      # fnlwgt
+    pl.Categorical,  # education
+    pl.Float64,      # education_num
+    pl.Categorical,  # marital_status
+    pl.Categorical,  # occupation
+    pl.Categorical,  # relationship
+    pl.Categorical,  # race
+    pl.Categorical,  # sex
+    pl.Float64,      # capital_gain
+    pl.Float64,      # capital_loss
+    pl.Float64,      # hours_per_week
+    pl.Categorical,  # native_country
+    pl.Categorical   # income
+]
+
+renda_adulta = pl.read_csv(
+    "Dados/renda_adulta.csv.gz",
+    has_header=False,          
+    new_columns=col_names,     
+    dtypes=col_dtypes,         
+    null_values="?"            
+)
+print(renda_adulta)
+```
+
+2, 3 e 4)
+
+```{python}
+print(renda_adulta.schema)
+
+print("Dimensões (linhas, colunas):", renda_adulta.shape)
+
+print(renda_adulta["income"].value_counts())
+```
+
+5, 6 e 7)
+
+```{python}
+renda_longo = renda_adulta.melt(
+    id_vars=[col for col in renda_adulta.columns if col not in ["capital_gain", "capital_loss"]],
+    value_vars=["capital_gain", "capital_loss"],
+    variable_name="tipo",
+    value_name="Valor"
+)
+print(renda_longo.head())
+
+medias_horas = renda_adulta.group_by("income").agg(
+    pl.col("hours_per_week").mean().alias("media_horas")
+)
+print(medias_horas)
+
+print(renda_adulta["occupation"].value_counts().sort("count", descending=True))
+```
+
+8\)
+
+```{python}
+medias_horas = (
+    renda_adulta
+    .group_by("income")
+    .agg(pl.col("hours_per_week").mean().alias("media_horas"))
+    .sort("income")
+)
+
+df_plot = medias_horas.to_pandas()
+
+fig = px.bar(
+    df_plot,
+    x="income",
+    y="media_horas",
+    title="Média de Horas Trabalhadas por Semana por Classe Salarial",
+    labels={"income": "Classe Salarial", "media_horas": "Média de Horas Semanais"},
+    text="media_horas"
+)
+
+fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+fig.update_layout(yaxis=dict(title="Média de horas/semana"), xaxis_title="Classe salarial")
+
+fig.show()
+```
+
+9\)
+
+```{python}
+contagem_genero = (
+    renda_adulta
+    .group_by(["sex", "income"])
+    .count()
+    .pivot(values="count", index="sex", columns="income")
+    .fill_null(0)
+)
+
+contagem_genero = contagem_genero.with_columns(
+    (pl.col(">50K") / (pl.col(">50K") + pl.col("<=50K")) * 100).alias("pct_maior_50K")
+)
+
+print(contagem_genero)
+```
+
+Podemos ver que a proporção de homens que ganha acima de 50.000 é muito maior que a de mulheres, indicando discriminação salarial de gênero.
+
+Data e Hora)
+
+```{python}
+data_hora_geracao = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+print(f"Laboratório gerado em: {data_hora_geracao}")
+```
