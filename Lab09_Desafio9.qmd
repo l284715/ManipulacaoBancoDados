@@ -1,0 +1,87 @@
+---
+title: "Lab 09 e Desafio 9"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+Carregamento de Pacotes)
+
+```{r}
+library(readr)
+library(RSQLite)
+library(DBI)
+library(dplyr)
+```
+
+1 e 2)
+
+```{r}
+con <- dbConnect(RSQLite::SQLite(), "voos.sqlite3")
+
+airlines <- read_csv("Dados/airlines.csv")
+airports <- read_csv("Dados/airports.csv")
+
+dbWriteTable(con, "airlines", airlines, overwrite = TRUE)
+dbWriteTable(con, "airports", airports, overwrite = TRUE)
+```
+
+3 e 4)
+
+```{r}
+lerDados <- function(input, pos) {
+  message("Leitura atingiu a linha ", pos)
+  
+  input <- input %>%
+    select(
+      YEAR, MONTH, DAY, AIRLINE, FLIGHT_NUMBER,
+      ORIGIN_AIRPORT, DESTINATION_AIRPORT, ARRIVAL_DELAY)
+  
+  aeroportos_interesse <- c("BWI", "MIA", "SEA", "SFO", "JFK")
+  
+  dados_filtrados <- input %>%
+    filter(
+      ORIGIN_AIRPORT %in% aeroportos_interesse |
+      DESTINATION_AIRPORT %in% aeroportos_interesse)
+  
+   con <- dbConnect(RSQLite::SQLite(), "voos.sqlite3")
+  dbWriteTable(con, "flights", dados_filtrados, append = TRUE)}
+
+read_csv_chunked(
+  file = "Dados/flights.csv",
+  callback = SideEffectChunkCallback$new(lerDados),
+  chunk_size = 100000)
+
+head(dbReadTable(con, "flights")) # Para verificar
+```
+
+5\)
+
+```{r}
+con <- dbConnect(SQLite(), "voos.sqlite3")
+
+query <- "
+SELECT 
+  f.DESTINATION_AIRPORT AS aeroporto_sigla,
+  a.AIRPORT AS aeroporto_nome,
+  al.AIRLINE AS companhia_nome,
+  AVG(f.ARRIVAL_DELAY) AS atraso_medio
+FROM flights f
+JOIN airports a ON f.DESTINATION_AIRPORT = a.IATA_CODE
+JOIN airlines al ON f.AIRLINE = al.IATA_CODE
+GROUP BY f.DESTINATION_AIRPORT, a.AIRPORT, al.AIRLINE
+ORDER BY atraso_medio DESC
+"
+
+resultado <- dbGetQuery(con, query)
+head(resultado) # Para verificar
+
+dbDisconnect(con)
+```
+
+Data e Hora)
+
+```{r}
+data_hora <- format(Sys.time(), "%d/%m/%Y %H:%M:%S")
+data_hora
+```
