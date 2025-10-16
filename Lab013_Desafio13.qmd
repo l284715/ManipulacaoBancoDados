@@ -1,0 +1,139 @@
+---
+title: "Lab013_Desafio13"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+Carregamento de Pacotes)
+
+```{python}
+import polars as pl
+import sqlite3
+from datetime import datetime
+```
+
+1\)
+
+```{python}
+basics_path = "Dados/title.basics0.tsv.gz"
+ratings_path = "Dados/title.ratings.tsv.gz"
+principals_path = "Dados/title.principals0.tsv.gz"
+
+def load_and_write_in_chunks(path, table_name, conn, chunk_size=100_000):
+    """
+    Lê um TSV em blocos usando BatchedCsvReader.next_batches()
+    e grava no SQLite em partes, evitando estouro de memória.
+    """
+    print(f"Carregando {table_name} em chunks de {chunk_size} linhas...")
+    
+    reader = pl.read_csv_batched(
+        path,
+        separator="\t",
+        null_values="\\N",
+        infer_schema_length=0,
+        quote_char=None,
+        batch_size=chunk_size)
+
+    first = True
+    while True:
+        batches = reader.next_batches(1)   
+        if not batches:
+            break
+        batch = batches[0]
+        pdf = batch.to_pandas()
+        pdf.to_sql(
+            table_name,
+            conn,
+            if_exists="replace" if first else "append",
+            index=False)
+        first = False
+    print(f"Tabela {table_name} carregada com sucesso!")
+
+conn = sqlite3.connect("imdb.sqlite")
+
+load_and_write_in_chunks(basics_path, "basics", conn)
+load_and_write_in_chunks(ratings_path, "ratings", conn)
+load_and_write_in_chunks(principals_path, "principals", conn)
+
+tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()
+print("Tabelas no banco:", tables)
+
+conn.commit()
+```
+
+2\)
+
+```{python}
+query_top5 = """
+SELECT 
+    b.primaryTitle,
+    r.averageRating,
+    r.numVotes
+FROM basics b
+JOIN ratings r ON b.tconst = r.tconst
+WHERE b.titleType = 'movie'
+ORDER BY r.averageRating DESC, r.numVotes DESC
+LIMIT 5;
+"""
+
+top5 = pl.read_database(query_top5, connection=conn)
+print("🎬 Top 5 filmes com maiores notas:")
+print(top5)
+```
+
+3\)
+
+```{python}
+query_genre = """
+WITH high_rated AS (
+    SELECT b.genres
+    FROM basics b
+    JOIN ratings r ON b.tconst = r.tconst
+    WHERE b.titleType = 'movie'
+      AND r.averageRating > 8
+      AND b.genres IS NOT NULL
+)
+SELECT TRIM(value) AS genre, COUNT(*) AS freq
+FROM high_rated, 
+     json_each('["' || REPLACE(genres, ',', '","') || '"]')
+GROUP BY genre
+ORDER BY freq DESC
+LIMIT 1;
+"""
+
+genre_top = pl.read_database(query_genre, connection=conn)
+print("🏆 Gênero mais frequente entre filmes com nota > 8:")
+print(genre_top)
+```
+
+4\)
+
+```{python}
+query_actors = """
+SELECT 
+    p.nconst,
+    COUNT(*) AS total_filmes
+FROM principals p
+JOIN ratings r ON p.tconst = r.tconst
+JOIN basics b ON p.tconst = b.tconst
+WHERE b.titleType = 'movie'
+  AND r.averageRating > 7.5
+  AND p.category IN ('actor', 'actress')
+GROUP BY p.nconst
+ORDER BY total_filmes DESC
+LIMIT 3;
+"""
+
+top_actors = pl.read_database(query_actors, connection=conn)
+print("👑 Top 3 atores/atrizes em filmes com nota > 7.5:")
+print(top_actors)
+```
+
+Data e Hora)
+
+```{python}
+data_hora_geracao = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+print(f"Laboratório gerado em: {data_hora_geracao}")
+```
