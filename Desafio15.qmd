@@ -1,0 +1,251 @@
+---
+title: "Desafio15"
+author: "Luiz Eduardo Rodrigues"
+format: html
+editor: visual
+---
+
+O objetivo deste projeto é realizar um teste de capacidade de processamento da linguagem de programação Julia. Para isso, utilizamos loops seriais e loops paralelos em dois exemplos, e medimos o tempo gasto para processá-los. Além disso, foi feito um comparativo com as linguagens de programação R e Python no segundo exemplo, a fim de ter uma melhor referenciação.\
+\
+Exemplo 1 (somente Julia):
+
+```{r}
+library(JuliaCall)
+julia_setup(JULIA_HOME = "C:/Users/luizm/AppData/Local/Programs/Julia-1.12.1/bin")
+julia_command("using Base.Threads")
+
+julia_command("
+function serial_loop(N)
+    s = 0
+    for i in 1:N
+        if i <= 10
+            s += i
+        else
+            s -= i
+        end
+    end
+    return s
+end
+")
+
+julia_command("
+function parallel_loop(N)
+    acc = Atomic{Int}(0)
+    @threads for i in 1:N
+        if i <= 10
+            atomic_add!(acc, i)
+        else
+            atomic_add!(acc, -i)
+        end
+    end
+    return acc[]
+end
+")
+
+julia_command("
+function run_example(N)
+    io = IOBuffer()
+
+    t1 = time()
+    r1 = serial_loop(N)
+    println(io, \"Julia - Exemplo 1\")
+    println(io, \"Serial resultado: \", r1)
+    println(io, \"Serial tempo (s): \", time() - t1)
+
+    t2 = time()
+    r2 = parallel_loop(N)
+    println(io, \"Paralelo resultado: \", r2)
+    println(io, \"Paralelo tempo (s): \", time() - t2)
+
+    return String(take!(io))
+end
+")
+
+res <- julia_eval("run_example(1_000_000)")
+cat(res)
+```
+
+O exemplo 1 apresenta um problema simples de subtração de um somatório pequeno por outro consideravelmente maior. Neste caso, o loop serial apresentou um desempenho superior ao loop paralelo. Isso ocorre porque o trabalho realizado em cada iteração é bastante simples (apenas um teste condicional e uma soma), tornando o custo de paralelização muito maior do que o ganho potencial.
+
+Exemplo 2:\
+(Julia)
+
+```{r}
+library(JuliaCall)
+julia_setup(JULIA_HOME = "C:/Users/luizm/AppData/Local/Programs/Julia-1.12.1/bin")
+julia_command("using Base.Threads")
+
+julia_command("
+function serial_complex(N)
+    acc = 0.0
+    for i in 1:N
+        if mod(i,3) == 0
+            acc += sqrt(i)
+        elseif mod(i,3) == 1
+            acc -= log(i)
+        else
+            acc += sin(i)
+        end
+    end
+    return acc
+end
+")
+
+julia_command("
+function parallel_complex(N)
+    acc = Atomic{Float64}(0.0)
+    @threads for i in 1:N
+        if mod(i,3) == 0
+            atomic_add!(acc, sqrt(i))
+        elseif mod(i,3) == 1
+            atomic_add!(acc, -log(i))
+        else
+            atomic_add!(acc, sin(i))
+        end
+    end
+    return acc[]
+end
+")
+
+julia_command("
+function run_complex(N)
+    io = IOBuffer()
+
+    t1 = time()
+    r1 = serial_complex(N)
+    println(io, \"Julia - Exemplo 2\")
+    println(io, \"Serial resultado: \", r1)
+    println(io, \"Tempo Serial (s): \", time() - t1)
+
+    t2 = time()
+    r2 = parallel_complex(N)
+    println(io, \"Paralelo resultado: \", r2)
+    println(io, \"Tempo Paralelo (s): \", time() - t2)
+
+    return String(take!(io))
+end
+")
+
+resultado2 <- julia_eval("run_complex(2_000_000)")
+cat(resultado2)
+
+```
+
+\(R\)
+
+```{r}
+library(parallel)
+
+serial_R <- function(n) {
+  s <- 0
+  for (i in 1:n) {
+    s <- s + sin(i) * cos(i/2)
+  }
+  s
+}
+
+parallel_R <- function(n) {
+
+  cores <- max(1, detectCores() - 1)
+  cl <- makeCluster(cores)
+  on.exit(stopCluster(cl))
+
+  clusterExport(cl, varlist = c("sin", "cos"), envir = environment())
+
+  result <- parLapply(cl, 1:n, function(i) sin(i) * cos(i/2))
+
+  sum(unlist(result))
+}
+
+run_example <- function(n) {
+  t1 <- Sys.time()
+  r1 <- serial_R(n)
+  t2 <- Sys.time() - t1
+
+  t3 <- Sys.time()
+  r2 <- parallel_R(n)
+  t4 <- Sys.time() - t3
+
+  list(
+    serial_result = r1,
+    serial_time = t2,
+    parallel_result = r2,
+    parallel_time = t4
+  )
+}
+
+run_R <- run_example(2000000)
+
+print("R - Exemplo 2")
+print(run_R)
+```
+
+(Python)
+
+```{r}
+library(reticulate)
+```
+
+```{python}
+import time
+import random
+import math
+from concurrent.futures import ThreadPoolExecutor
+
+def compute_value(x):
+    if x < 0.33:
+        return math.sin(x)
+    elif x < 0.66:
+        return math.log1p(x)
+    else:
+        return math.sqrt(x)
+
+def run_serial(n_iter):
+    start = time.time()
+    acc = 0.0
+
+    for _ in range(n_iter):
+        x = random.random()
+        acc += compute_value(x)
+
+    end = time.time()
+    return {"resultado": acc, "tempo": end - start}
+
+def run_parallel(n_iter):
+    start = time.time()
+
+    xs = [random.random() for _ in range(n_iter)]
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        resultados = list(executor.map(compute_value, xs))
+
+    acc = sum(resultados)
+
+    end = time.time()
+    return {"resultado": acc, "tempo": end - start}
+
+N = 2_000_000
+
+serial = run_serial(N)
+parallel = run_parallel(N)
+
+print("\n" + "="*60)
+print("Python – Exemplo 2")
+print("="*60)
+
+print(f"Total de iterações:      {N:,}")
+
+print("\nLoop Serial")
+print(f"Resultado acumulado:     {serial['resultado']:.6f}")
+print(f"Tempo (s):               {serial['tempo']:.6f}")
+
+print("\nLoop Paralelo")
+print(f"Resultado acumulado:     {parallel['resultado']:.6f}")
+print(f"Tempo (s):               {parallel['tempo']:.6f}")
+
+print("="*60 + "\n")
+```
+
+Este exemplo utilizou de um problema um pouco mais complexo com 2 milhões de iterações envolvendo operações matemáticas mais custosas (seno, log e raiz quadrada). Novamente, o loop serial se sobressaiu ao loop paralelo. Por outro lado, a liguagem Julia demonstrou desempenho amplamente superior as duas outras linguagens. Seu tempo de processamento foi 10 vezes mais rápido que ambas, nos dois tipos de loop (100 vezes mais rápido no caso do loop paralelo do Python, porém, mais por conta de uma limitação do software utilizado para executar os códigos que nos obrigou a utilizar um método não convencional para o este tipo de loop).
+
+Conclusão: Julia é uma linguagem de programação mais moderna e mais capacitada para o alto desempenho exigido atualmente. Essa afirmação se justifica no comparativo com o R e o Python, onde ela teve velocidade de processamento amplamente maior. Por outro lado, a vantagem do loop serial sobre o loop paralelo em ambos os casos pode ter um caráter enviesado. Análises utilizando problemas ainda mais complexos e exigentes podem fornecer um cenário onde a paralelização do loop obtenha desempenho superior ao loop em série comum.\
