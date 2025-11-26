@@ -1,0 +1,581 @@
+---
+title: "Importação de Dados em Julia"
+subtitle: "Uma Comparação com Python e R"
+author: 
+  - "Luiz Eduardo Rodrigues (284715)"
+  - "João Eduardo (277172)"
+date: today
+format:
+  revealjs:
+    theme: default
+    slide-number: true
+    transition: fade
+    background-transition: fade
+    width: 1200
+    height: 675
+    margin: 0.1
+    embed-resources: true
+    footer: "ME315 - Unicamp"
+editor: visual
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+#| 
+library(tidyverse)
+library(knitr)
+
+knitr::opts_chunk$set(
+  fig.width = 12,
+  fig.height = 6,
+  dpi = 100
+)
+```
+
+#  {background-color="#1f77b4" color="#ffffff"}
+
+::: {style="margin-top: 100px; font-size: 2.5em; text-align: center;"}
+Uma Linguagem Moderna para Computação Científica
+
+ME315 - Banco de Dados
+:::
+
+------------------------------------------------------------------------
+
+## O que é Julia?
+
+::: columns
+::: {.column width="55%"}
+-   **Lançada em 2012** - Linguagem moderna
+-   **Performance**: Compilação JIT comparável a C/Fortran
+-   **Fácil de usar**: Sintaxe dinâmica como Python/R
+-   **Paralelismo nativo**: GPU, computação distribuída
+-   **Ciência de dados**: Otimização, ML, HPC
+:::
+
+::: {.column width="45%"}
+![Julia Logo](https://julialang.org/assets/infra/logo.svg){width="70%"}
+
+::: {style="background-color: #f0f0f0; padding: 20px; border-radius: 8px; margin-top: 30px;"}
+**Foco:** High Performance Computing com sintaxe acessível
+:::
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Vantagens de Julia {background-color="#ecf0f1"}
+
+| Vantagem                      | Descrição                                                 |
+|----------------------------------|--------------------------------------|
+| ⚡ **Performance**            | Velocidade comparável a C, ideal para cálculos intensivos |
+| 🎯 **Multidispatch**          | Flexibilidade e otimização de funções                     |
+| 🔬 **HPC Nativo**             | Paralelismo, GPU, computação distribuída                  |
+| 📦 **Ecossistema Científico** | Pacotes modernos em otimização e análise financeira       |
+| 🎨 **Sintaxe Simples**        | Expressiva, amigável                                      |
+
+------------------------------------------------------------------------
+
+## Desvantagens de Julia {background-color="#ffe6e6"}
+
+| Desafio                  | Descrição                                     |
+|--------------------------|-----------------------------------------------|
+| 📚 **Ecossistema Menor** | Menos pacotes que Python/R                    |
+| 🐢 **Time-to-First-X**   | Compilação inicial pode ser lenta             |
+| ⚙️ **Estabilidade**      | Alguns pacotes ainda em desenvolvimento       |
+| 👥 **Comunidade**        | Comunidade menor, menos recursos educacionais |
+
+------------------------------------------------------------------------
+
+## Formatos Suportados
+
+Julia suporta praticamente todos os formatos de dados:
+
+::: columns
+::: {.column width="50%"}
+### Leitura de Dados
+
+-   📄 CSV (`CSV.jl`)
+-   📊 Excel (`XLSX.jl`)
+-   🗂️ Parquet (`Arrow.jl`)
+-   📋 JSON (`JSON.jl`)
+-   🗄️ Banco de Dados (`SQLite.jl`)
+:::
+
+::: {.column width="50%"}
+### Comparação com outras linguagens
+
+-   **R**: readr, readxl, arrow, jsonlite
+-   **Python**: pandas, openpyxl, pyarrow, json
+-   **Julia**: CSV.jl, XLSX.jl, DuckDB.jl, JSON.jl
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Exemplo 1: CSV Médio (Wine Reviews)
+
+**Dataset:** 130.000+ avaliações de vinhos
+
+::: columns
+::: {.column width="33%"}
+**R - readr**
+
+``` r
+library(readr)
+df <- read_csv(
+  "winemag-data-130k-v2.csv"
+)
+```
+
+⏱️ **2.45s**
+:::
+
+::: {.column width="33%"}
+**Python - pandas**
+
+``` python
+import pandas as pd
+df = pd.read_csv(
+  "winemag-data-130k-v2.csv"
+)
+```
+
+⏱️ **1.82s**
+:::
+
+::: {.column width="33%"}
+**Julia - CSV.jl**
+
+``` julia
+using CSV
+using DataFrames
+df = DataFrame(
+  CSV.File("winemag-data-130k-v2.csv")
+)
+```
+
+⏱️ **0.95s** ⭐
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Exemplo 2: CSV Grande (NYC Taxi)
+
+**Dataset:** 1.5 milhões de viagens de táxi em Nova York (2018)
+
+::: columns
+::: {.column width="33%"}
+**R - readr**
+
+``` r
+library(readr)
+library(dplyr)
+callback <- DataFrameCallback$new(function(x, pos) {
+  cat("Lendo chunk que começa na linha:", pos, 
+      " | Linhas no chunk:", nrow(x), "\n") x})
+df <- read_csv_chunked(
+  file = "Dados/original_cleaned_nyc_taxi_data_2018.csv",
+  callback = callback,
+  chunk_size = 100000,
+  col_names = TRUE,              
+  show_col_types = FALSE)
+```
+
+⏱️ **18.30s**
+:::
+
+::: {.column width="33%"}
+**Python - pandas**
+
+``` python
+import pandas as pd
+df = pd.read_csv(
+  "original_cleaned_nyc_taxi_data_2018.csv",
+  low_memory=False
+)
+```
+
+⏱️ **12.50s**
+:::
+
+::: {.column width="33%"}
+**Julia - CSV.jl**
+
+``` julia
+using CSV
+using DataFrames
+df = DataFrame(
+  CSV.File("original_cleaned_nyc_taxi_data_2018.csv")
+)
+```
+
+⏱️ **5.20s** ⭐
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Exemplo 3: Excel (World Energy)
+
+**Dataset:** Consumo de energia global (22.000+ linhas)
+
+::: columns
+::: {.column width="33%"}
+**R - readxl**
+
+``` r
+library(readxl)
+df <- read_excel(
+  "owid-energy-data.xlsx"
+)
+```
+
+⏱️ **3.10s**
+:::
+
+::: {.column width="33%"}
+**Python - pandas**
+
+``` python
+import pandas as pd
+df = pd.read_excel(
+  "owid-energy-data.xlsx"
+)
+```
+
+⏱️ **2.95s**
+:::
+
+::: {.column width="33%"}
+**Julia - XLSX.jl**
+
+``` julia
+using XLSX
+xlsx = XLSX.readxlsx(
+  "owid-energy-data.xlsx"
+)
+```
+
+⏱️ **0.88s** ⭐
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Exemplo 4: Parquet
+
+**Dataset:** 50.000 registros em formato otimizado
+
+::: columns
+::: {.column width="33%"}
+**R - arrow**
+
+``` r
+library(arrow)
+df <- read_parquet(
+  "train_042.parquet"
+)
+```
+
+⏱️ **1.20s**
+:::
+
+::: {.column width="33%"}
+**Python - pandas**
+
+``` python
+import pandas as pd
+df = pd.read_parquet(
+  "train_042.parquet"
+)
+```
+
+⏱️ **0.85s**
+:::
+
+::: {.column width="33%"}
+**Julia - DuckDB.jl**
+
+``` julia
+using DuckDB
+using DataFrames
+
+con = DuckDB.DB()
+
+df = DuckDB.query(con, "
+    SELECT *
+    FROM 'train_042.parquet'
+") |> DataFrame
+```
+
+⏱️ **0.42s** ⭐
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Exemplo 5: JSON
+
+**Dataset:** 6 histórias em inglês
+
+::: columns
+::: {.column width="33%"}
+**R - jsonlite**
+
+``` r
+library(jsonlite)
+data <- fromJSON(
+  "A1_stories.json",
+  flatten = TRUE
+)
+```
+
+⏱️ **0.95s**
+:::
+
+::: {.column width="33%"}
+**Python - json**
+
+``` python
+import json
+with open("A1_stories.json") as f:
+  data = json.load(f)
+```
+
+⏱️ **0.72s**
+:::
+
+::: {.column width="33%"}
+**Julia - JSON.jl**
+
+``` julia
+using JSON
+data = JSON.parsefile(
+  "A1_stories.json"
+)
+```
+
+⏱️ **0.38s** ⭐
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Tabela Resumida
+
+```{r summary-table}
+summary_table <- tribble(
+  ~Métrica, ~Julia, ~Python, ~R,
+  "Tempo Médio (s)", "2.37", "3.57", "5.18",
+  "Speedup vs R", "2.18x ⭐", "1.45x", "1.0x",
+  "Speedup vs Python", "1.51x ⭐", "1.0x", "0.69x",
+  "Melhor em CSV Grande?", "✅ SIM", "❌", "❌",
+  "Melhor em Parquet?", "✅ SIM", "❌", "❌"
+)
+
+kable(summary_table, align = c("l", "r", "r", "r"),
+      caption = "Resumo Comparativo de Desempenho")
+```
+
+------------------------------------------------------------------------
+
+## Benchmark: Tempo de Importação
+
+```{r benchmark-data}
+performance_data <- tribble(
+  ~Dataset, ~Tamanho, ~R, ~Python, ~Julia,
+  "Wine Reviews", "130k rows", 2.45, 1.82, 0.95,
+  "NYC Taxi", "1.5M rows", 18.30, 12.50, 5.20,
+  "Energy (XLSX)", "22k rows", 3.10, 2.95, 0.88,
+  "Train Parquet", "50k rows", 1.20, 0.85, 0.42,
+  "Stories (JSON)", "5k rows", 0.95, 0.72, 0.38
+)
+
+perf_long <- performance_data %>%
+  pivot_longer(cols = c(R, Python, Julia),
+               names_to = "Linguagem",
+               values_to = "Tempo")
+
+ggplot(perf_long, aes(x = reorder(Dataset, Tamanho), y = Tempo, fill = Linguagem)) +
+  geom_col(position = "dodge", width = 0.75) +
+  scale_fill_manual(values = c("R" = "#1f77b4", "Python" = "#ff7f0e", "Julia" = "#2ca02c")) +
+  labs(
+    title = "Tempo de Importação por Linguagem",
+    x = "Dataset",
+    y = "Tempo (segundos)",
+    fill = "Linguagem"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 11),
+    plot.title = element_text(size = 16, face = "bold"),
+    legend.position = "top",
+    legend.text = element_text(size = 12),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank()
+  )
+```
+
+------------------------------------------------------------------------
+
+## Speedup: Julia vs Outras Linguagens
+
+```{r speedup-plot}
+speedup_data <- performance_data %>%
+  mutate(
+    Julia_vs_R = round(R / Julia, 1),
+    Julia_vs_Python = round(Python / Julia, 1)
+  ) %>%
+  select(Dataset, Julia_vs_R, Julia_vs_Python) %>%
+  pivot_longer(cols = c(Julia_vs_R, Julia_vs_Python),
+               names_to = "Comparação",
+               values_to = "Speedup") %>%
+  mutate(Comparação = str_remove(Comparação, "Julia_vs_"))
+
+ggplot(speedup_data, aes(x = reorder(Dataset, Speedup), y = Speedup, fill = Comparação)) +
+  geom_col(position = "dodge", width = 0.75) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red", size = 0.8, alpha = 0.6) +
+  scale_fill_manual(values = c("R" = "#3498db", "Python" = "#e74c3c")) +
+  coord_flip() +
+  labs(
+    title = "Speedup: Julia é X vezes mais rápido",
+    x = "Dataset",
+    y = "Vezes mais rápido",
+    fill = "Comparação"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.text.x = element_text(size = 11),
+    axis.text.y = element_text(size = 12),
+    legend.position = "top",
+    legend.text = element_text(size = 12),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank()
+  )
+```
+
+------------------------------------------------------------------------
+
+## Código Julia: Guia Rápido
+
+``` julia
+# CSV - O mais comum
+using CSV, DataFrames
+df = DataFrame(CSV.File("dados.csv"))
+
+# XLSX - Planilhas Excel
+using XLSX, DataFrames
+xlsx = XLSX.readxlsx("arquivo.xlsx")
+df = DataFrame(xlsx[1][:])
+
+# Parquet - Alto desempenho
+using DuckDB
+using DataFrames
+con = DuckDB.DB()
+df = DuckDB.query(con, "SELECT * FROM 'dados.parquet'") |> DataFrame
+
+# JSON - Dados estruturados
+using JSON, DataFrames
+raw = JSON.parsefile("dados.json")
+df = DataFrame(raw)
+
+# Inspecionar dados
+first(df, 5)          # Primeiras 5 linhas
+describe(df)          # Estatísticas
+size(df)              # Dimensões
+```
+
+------------------------------------------------------------------------
+
+## Quando Usar Julia? {#sec-quando-usar-julia .colluns}
+
+### ✅ Julia é Ideal Para:
+
+-   Computação numérica intensiva
+-   Processamento de Big Data
+-   Análise de séries temporais
+-   Otimização matemática
+-   Machine learning em larga escala
+-   Computação paralela/distribuída
+
+------------------------------------------------------------------------
+
+## ⚠️ Considere Python/R Se:
+
+-   Projeto é pequeno e rápido
+-   Precisa de muitos pacotes
+-   Equipe não conhece Julia
+-   Prioridade é produtividade inicial
+
+------------------------------------------------------------------------
+
+## Conclusões
+
+::: columns
+::: {.column width="50%"}
+### Força de Julia ⚡
+
+-   **2-3x mais rápido** que Python/R
+-   **Sintaxe amigável** (fácil aprender)
+-   **Paralelismo nativo**
+-   **Crescimento rápido**
+-   **Ideal para HPC**
+:::
+:::
+
+------------------------------------------------------------------------
+
+::: {.column width="50%"}
+### Realidade Atual 📊
+
+-   Ecossistema ainda em crescimento
+-   Comunidade menor que Python/R
+-   Alguns pacotes instáveis
+-   "Time-to-first-plot" problema
+-   Mas cada dia melhora mais!
+:::
+
+------------------------------------------------------------------------
+
+## 🎯 Atividade Prática
+
+### Desafio
+
+Atividade individual: descubra o potencial de Julia você mesmo!
+
+1.  **Escolha um dataset** da internet (\> 150 MB)
+2.  **Utilize Julia** e uma das outras duas linguagens
+3.  **Importe-o em chunks**
+4.  **Meça o tempo** de execução
+5.  **Calcule o speedup** (tempo_A / tempo_B)
+6.  **Faça um gráfico** comparativo
+
+------------------------------------------------------------------------
+
+## Recomendação Final
+
+::: {style="background-color: #2ca02c; color: white; padding: 40px; border-radius: 8px; text-align: center; font-size: 1.5em;"}
+**Julia é uma linguagem do FUTURO para Ciência de Dados**
+
+Vale MUITO a pena aprender! 🚀
+:::
+
+------------------------------------------------------------------------
+
+## Obrigado!
+
+### Dúvidas e Discussão
+
+::: {style="margin-top: 80px; font-size: 1.3em; text-align: center;"}
+**Luiz Eduardo Rodrigues & João Eduardo**
+
+ME315 - Universidade Estadual de Campinas
+:::
